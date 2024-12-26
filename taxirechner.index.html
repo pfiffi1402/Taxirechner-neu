@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Taxi Tarifrechner - Landkreis Harz</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <style>
+        .taxi-tarifrechner-container {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            padding: 20px;
+            max-width: 600px;
+            margin: 20px auto;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .taxi-tarifrechner-container h1 {
+            text-align: center;
+        }
+
+        .taxi-tarifrechner-container .form-group {
+            margin-bottom: 20px;
+        }
+
+        .taxi-tarifrechner-container label {
+            font-weight: bold;
+        }
+
+        .taxi-tarifrechner-container input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            margin-top: 5px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+        }
+
+        .taxi-tarifrechner-container button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            width: 100%;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        .taxi-tarifrechner-container button:hover {
+            background-color: #45a049;
+        }
+
+        .taxi-tarifrechner-container .result {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f9f9f9;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+        }
+
+        .taxi-tarifrechner-container .result p {
+            margin: 5px 0;
+        }
+
+        #map {
+            height: 400px;
+            margin-top: 20px;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="taxi-tarifrechner-container">
+        <h1>Taxi Tarifrechner</h1>
+        <p>Berechnen Sie die voraussichtlichen Kosten Ihrer Taxifahrt im Landkreis Harz.</p>
+
+        <div class="form-group">
+            <label for="start">Startort:</label>
+            <input type="text" id="start" placeholder="Geben Sie Ihren Startort ein" required>
+        </div>
+
+        <div class="form-group">
+            <label for="ziel">Zielort:</label>
+            <input type="text" id="ziel" placeholder="Geben Sie Ihren Zielort ein" required>
+        </div>
+
+        <button onclick="berechneKosten()">Kosten berechnen</button>
+
+        <div id="result" class="result" style="display:none;">
+            <h3>Ergebnisse:</h3>
+            <p id="grundgebuehr"></p>
+            <p id="kilometerpreis"></p>
+            <p id="gesamtkosten"></p>
+            <p id="entfernung"></p>
+        </div>
+        
+        <!-- Karte -->
+        <div id="map"></div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script>
+        const apiKey = "5b3ce3597851110001cf624802cd7cb845b64f05b50112b78fdf01d1";
+        let map;
+        let routeLayer;
+
+        async function berechneKosten() {
+            const startOrt = document.getElementById('start').value;
+            const zielOrt = document.getElementById('ziel').value;
+
+            if (!startOrt || !zielOrt) {
+                alert("Bitte geben Sie sowohl einen Start- als auch einen Zielort ein.");
+                return;
+            }
+
+            // Geocoding
+            const geocodeUrl = `https://api.openrouteservice.org/geocode/search?api_key=${apiKey}&text=`;
+            let startCoords, zielCoords;
+
+            try {
+                const startResponse = await fetch(geocodeUrl + encodeURIComponent(startOrt));
+                const startData = await startResponse.json();
+                startCoords = startData.features[0].geometry.coordinates;
+
+                const zielResponse = await fetch(geocodeUrl + encodeURIComponent(zielOrt));
+                const zielData = await zielResponse.json();
+                zielCoords = zielData.features[0].geometry.coordinates;
+            } catch (error) {
+                alert("Fehler beim Geocoding der Orte.");
+                return;
+            }
+
+            // Routenberechnung
+            const routeUrl = `https://api.openrouteservice.org/v2/directions/driving-car?api_key=${apiKey}&start=${startCoords.join(",")}&end=${zielCoords.join(",")}`;
+            let distanzInKm;
+
+            try {
+                const routeResponse = await fetch(routeUrl);
+                const routeData = await routeResponse.json();
+                const distanzInMeter = routeData.routes[0].summary.distance;
+                distanzInKm = distanzInMeter / 1000;
+
+                // Route auf der Karte anzeigen
+                showRouteOnMap(startCoords, zielCoords, routeData);
+            } catch (error) {
+                alert("Fehler bei der Routenberechnung.");
+                return;
+            }
+
+            // Kostenberechnung
+            const grundgebuehr = 3.80;
+            const km1_5 = 3.20;
+            const km6_25 = 2.20;
+            const km26plus = 2.00;
+
+            let kosten = grundgebuehr;
+            let kmRest = distanzInKm;
+
+            if (kmRest > 5) {
+                kosten += 5 * km1_5;
+                kmRest -= 5;
+            } else {
+                kosten += kmRest * km1_5;
+                kmRest = 0;
+            }
+
+            if (kmRest > 0 && kmRest <= 20) {
+                kosten += kmRest * km6_25;
+                kmRest = 0;
+            }
+
+            if (kmRest > 0) {
+                kosten += kmRest * km26plus;
+            }
+
+            // Ergebnisse anzeigen
+            document.getElementById('grundgebuehr').innerText = 'Grundgebühr: 3,80 €';
+            document.getElementById('kilometerpreis').innerText = 'Kilometerpreis: ' + kosten.toFixed(2) + ' €';
+            document.getElementById('gesamtkosten').innerText = 'Gesamtkosten: ' + kosten.toFixed(2) + ' €';
+            document.getElementById('entfernung').innerText = 'Entfernung: ' + distanzInKm.toFixed(2) + ' km';
+
+            document.getElementById('result').style.display = 'block';
+        }
+
+        function showRouteOnMap(startCoords, zielCoords, routeData) {
+            if (!map) {
+                map = L.map('map').setView([startCoords[1], startCoords[0]], 13);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    maxZoom: 19,
+                }).addTo(map);
+            }
+
+            if (routeLayer) {
+                map.removeLayer(routeLayer);
+            }
+
+            const routeCoords = routeData.routes[0].geometry.coordinates.map(coord => [coord[1], coord[0]]);
+            routeLayer = L.polyline(routeCoords, { color: 'blue' }).addTo(map);
+
+            map.fitBounds(routeLayer.getBounds());
+        }
+    </script>
+</body>
+</html>
